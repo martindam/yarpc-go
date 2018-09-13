@@ -249,9 +249,9 @@ type dialerWrapper struct {
 
 func (d *dialerWrapper) Dial(network, address string) (net.Conn, error) {
 	conn, err := d.dial(network, address)
-	if conn == nil {
-		// TODO: check for specific errors?
-		d.transport.SetPeerSuspect(address)
+	// Any error will cause
+	if err != nil {
+		d.transport.OnDisconnected(address)
 	}
 	return conn, err
 }
@@ -336,8 +336,8 @@ func (a *Transport) RetainPeer(pid peer.Identifier, sub peer.Subscriber) (peer.P
 	return p, nil
 }
 
-// SetPeerSuspect marks a peer as potentially down.
-func (a *Transport) SetPeerSuspect(addr string) error {
+// OnDisconnected marks a peer as potentially down.
+func (a *Transport) OnDisconnected(addr string) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
@@ -346,7 +346,7 @@ func (a *Transport) SetPeerSuspect(addr string) error {
 		// Peer has already been ejected.
 		return nil
 	}
-	p.OnSuspect()
+	p.onDisconnected()
 
 	return nil
 }
