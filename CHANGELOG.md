@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   load balancer algorithm.
 - Reintroduce Transport field matching for `transporttest.RequestMatcher`.
 - Added `encoding/protobuf/reflection/` for exposing server reflection related
-  information through codegeneration.
-- `protoc-gen-yarpc-go` now generates `yarpcprotoreflectionfx` fx groups containing
+  information through codegeneration. For docs related to server reflection read
+  https://github.com/grpc/grpc/blob/master/doc/server-reflection.md.
+- `protoc-gen-yarpc-go` now generates `yarpc` fx groups containing
   information required for building server reflection API's.
 
 ### Changed
