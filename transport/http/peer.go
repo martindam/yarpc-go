@@ -105,7 +105,6 @@ func (p *httpPeer) OnSuspect() {
 
 func (p *httpPeer) onDisconnected() {
 	p.Peer.SetStatus(peer.Connecting)
-
 	// Kick the state change channel (if it hasn't been kicked already).
 	select {
 	case p.changed <- struct{}{}:

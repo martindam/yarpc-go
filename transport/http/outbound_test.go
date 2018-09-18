@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +112,59 @@ func TestCallSuccess(t *testing.T) {
 	if assert.NoError(t, err) {
 		assert.Equal(t, []byte("great success"), body)
 	}
+}
+
+type Called struct {
+	called bool
+}
+
+func (c *Called) Call() {
+	c.called = true
+}
+
+func TestCallSuccessDialer(t *testing.T) {
+	// This tests verifies that dialer interception code will correctly disconnect a peer if
+	// Dialer library will catch an error on a connected peer.
+	successServer := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, req *http.Request) {
+			defer req.Body.Close()
+		},
+	))
+
+	// TODO: can this be simplified to reuse existing testing functions?
+	called := &Called{called: false}
+
+	httpTransport := NewTransport(GotHere(called.Call))
+
+	out := httpTransport.NewSingleOutbound(successServer.URL)
+	require.NoError(t, out.Start(), "failed to start outbound")
+	defer out.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Second)
+	defer cancel()
+	res, err := out.Call(ctx, &transport.Request{})
+	require.NoError(t, err)
+	defer res.Body.Close()
+
+	// Close HTTP server.
+	successServer.Close()
+	fmt.Println("Before delay")
+	time.Sleep(testtime.Second)
+	time.Sleep(testtime.Millisecond)
+	fmt.Println("After delay")
+	// Call again.
+	ctx, cancel = context.WithTimeout(context.Background(), testtime.Second)
+	defer cancel()
+	//time.Sleep(testtime.Second)
+	// Adding slight delay for Dialer to catch the connection error.
+
+	res, err = out.Call(ctx, &transport.Request{})
+	require.Error(t, err)
+
+	// TODO: check that we get a deadline exceeded timeout.
+	fmt.Println("my error is", err)
+	assert.Equal(t, yarpcerrors.CodeUnknown, yarpcerrors.FromError(err).Code())
+	assert.True(t, called.called)
 }
 
 func TestAddReservedHeader(t *testing.T) {

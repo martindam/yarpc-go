@@ -51,6 +51,7 @@ type transportOptions struct {
 	tracer                opentracing.Tracer
 	buildClient           func(*transportOptions) *http.Client
 	logger                *zap.Logger
+	gotHere               func()
 }
 
 var defaultTransportOptions = transportOptions{
@@ -199,6 +200,14 @@ func Logger(logger *zap.Logger) TransportOption {
 	}
 }
 
+// GotHere is used for tests to see whether we reached a certain point in tests. Currently we check
+// if we caught an error from Dialer.
+func GotHere(gotHere func()) TransportOption {
+	return func(options *transportOptions) {
+		options.gotHere = gotHere
+	}
+}
+
 // Hidden option to override the buildHTTPClient function. This is used only
 // for testing.
 func buildClient(f func(*transportOptions) *http.Client) TransportOption {
@@ -206,6 +215,8 @@ func buildClient(f func(*transportOptions) *http.Client) TransportOption {
 		options.buildClient = f
 	}
 }
+
+// Consider adding a dialer option (or an option to see whether we reached a certain endpoint).
 
 // NewTransport creates a new HTTP transport for managing peers and sending requests
 func NewTransport(opts ...TransportOption) *Transport {
@@ -245,21 +256,24 @@ func (o *transportOptions) newTransport() *Transport {
 type dialerWrapper struct {
 	dial      func(network, address string) (net.Conn, error)
 	transport *Transport
+	gotHere   func() // TODO: rename
 }
 
 func (d *dialerWrapper) Dial(network, address string) (net.Conn, error) {
 	conn, err := d.dial(network, address)
-	// Any error will cause
-	if err != nil {
+	// Any error will cause us to disconnect a peer. Not checking if conn is nil and relying on
+	// error being returned.
+	if err != nil || conn == nil {
+		if d.gotHere != nil {
+			d.gotHere()
+		}
 		d.transport.OnDisconnected(address)
 	}
 	return conn, err
 }
 
-// TODO: thread through buildHTTPClient function to thread through
 // Dialer wrapper needs to call a method of transport to send a notification to a peer
 // to resume peer management loop
-
 func (o *transportOptions) buildHTTPClient(transport *Transport) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
@@ -271,6 +285,8 @@ func (o *transportOptions) buildHTTPClient(transport *Transport) *http.Client {
 					KeepAlive: o.keepAlive,
 				}).Dial,
 				transport: transport,
+				// add optional function that's comes via tests.
+				gotHere: o.gotHere,
 			}).Dial,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
@@ -342,6 +358,7 @@ func (a *Transport) OnDisconnected(addr string) error {
 	defer a.lock.Unlock()
 
 	p, ok := a.peers[addr]
+
 	if !ok {
 		// Peer has already been ejected.
 		return nil
