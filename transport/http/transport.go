@@ -51,7 +51,8 @@ type transportOptions struct {
 	tracer                opentracing.Tracer
 	buildClient           func(*transportOptions) *http.Client
 	logger                *zap.Logger
-	gotHere               func()
+	dialerCalled          func()
+	closerCalled          func()
 }
 
 var defaultTransportOptions = transportOptions{
@@ -200,11 +201,19 @@ func Logger(logger *zap.Logger) TransportOption {
 	}
 }
 
-// GotHere is used for tests to see whether we reached a certain point in tests. Currently we check
+// DialerCalled is used for tests to see whether we reached a certain point in tests. Currently we check
 // if we caught an error from Dialer.
-func GotHere(gotHere func()) TransportOption {
+func DialerCalled(dialerCalled func()) TransportOption {
 	return func(options *transportOptions) {
-		options.gotHere = gotHere
+		options.dialerCalled = dialerCalled
+	}
+}
+
+// DialerCalled is used for tests to see whether we reached a certain point in tests. Currently we check
+// if we caught an error from Dialer.
+func CloserCalled(closerCalled func()) TransportOption {
+	return func(options *transportOptions) {
+		options.closerCalled = closerCalled
 	}
 }
 
@@ -252,11 +261,29 @@ func (o *transportOptions) newTransport() *Transport {
 	return t
 }
 
+type httpConn struct {
+	net.Conn
+
+	transport   *Transport
+	address     string
+	closeCalled func() // Used for testing.
+}
+
+func (c *httpConn) Close() error {
+	if c.closeCalled != nil {
+		c.closeCalled()
+	}
+	c.transport.OnDisconnected(c.address)
+
+	return c.Conn.Close()
+}
+
 // func(network, address string) (net.Conn, error)
 type dialerWrapper struct {
-	dial      func(network, address string) (net.Conn, error)
-	transport *Transport
-	gotHere   func() // TODO: rename
+	dial         func(network, address string) (net.Conn, error)
+	transport    *Transport
+	dialerCalled func() // Used for testing.
+	closerCalled func() // Used for testing.
 }
 
 func (d *dialerWrapper) Dial(network, address string) (net.Conn, error) {
@@ -264,12 +291,18 @@ func (d *dialerWrapper) Dial(network, address string) (net.Conn, error) {
 	// Any error will cause us to disconnect a peer. Not checking if conn is nil and relying on
 	// error being returned.
 	if err != nil || conn == nil {
-		if d.gotHere != nil {
-			d.gotHere()
+		if d.dialerCalled != nil {
+			d.dialerCalled()
 		}
 		d.transport.OnDisconnected(address)
 	}
-	return conn, err
+
+	return &httpConn{
+		Conn:        conn,
+		transport:   d.transport,
+		address:     address,
+		closeCalled: d.closerCalled,
+	}, err
 }
 
 // Dialer wrapper needs to call a method of transport to send a notification to a peer
@@ -286,7 +319,8 @@ func (o *transportOptions) buildHTTPClient(transport *Transport) *http.Client {
 				}).Dial,
 				transport: transport,
 				// add optional function that's comes via tests.
-				gotHere: o.gotHere,
+				dialerCalled: o.dialerCalled,
+				closerCalled: o.closerCalled,
 			}).Dial,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
@@ -352,7 +386,7 @@ func (a *Transport) RetainPeer(pid peer.Identifier, sub peer.Subscriber) (peer.P
 	return p, nil
 }
 
-// OnDisconnected marks a peer as potentially down.
+// OnDisconnected marks a peer as being potentially down.
 func (a *Transport) OnDisconnected(addr string) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
