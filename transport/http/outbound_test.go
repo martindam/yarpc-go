@@ -113,16 +113,16 @@ func TestCallSuccess(t *testing.T) {
 	}
 }
 
-type dialerCalled struct {
+type dialerTestFn struct {
 	dialerCalled bool
 	closerCalled bool
 }
 
-func (c *dialerCalled) DialerCalled() {
+func (c *dialerTestFn) DialerCalled() {
 	c.dialerCalled = true
 }
 
-func (c *dialerCalled) CloserCalled() {
+func (c *dialerTestFn) CloserCalled() {
 	c.closerCalled = true
 }
 
@@ -135,11 +135,11 @@ func TestCallSuccessDialer(t *testing.T) {
 		},
 	))
 
-	dialerCalled := &dialerCalled{dialerCalled: false}
+	dialerTest := &dialerTestFn{dialerCalled: false, closerCalled: false}
 
 	httpTransport := NewTransport(
-		DialerCalled(dialerCalled.DialerCalled),
-		CloserCalled(dialerCalled.CloserCalled))
+		DialerCalled(dialerTest.DialerCalled),
+		CloserCalled(dialerTest.CloserCalled))
 
 	out := httpTransport.NewSingleOutbound(successServer.URL)
 	require.NoError(t, out.Start(), "failed to start outbound")
@@ -163,8 +163,8 @@ func TestCallSuccessDialer(t *testing.T) {
 	require.Error(t, err)
 
 	assert.Equal(t, yarpcerrors.CodeUnknown, yarpcerrors.FromError(err).Code())
-	assert.True(t, dialerCalled.dialerCalled)
-	assert.True(t, dialerCalled.closerCalled)
+	assert.True(t, dialerTest.dialerCalled)
+	assert.True(t, dialerTest.closerCalled)
 }
 
 func TestAddReservedHeader(t *testing.T) {
