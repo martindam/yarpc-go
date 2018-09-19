@@ -114,20 +114,18 @@ func TestCallSuccess(t *testing.T) {
 }
 
 type dialerCalled struct {
-	called bool
+	dialerCalled bool
+	closerCalled bool
 }
 
-func (c *dialerCalled) Call() {
-	c.called = true
+func (c *dialerCalled) DialerCalled() {
+	c.dialerCalled = true
 }
 
-type closerCalled struct {
-	called bool
+func (c *dialerCalled) CloserCalled() {
+	c.closerCalled = true
 }
 
-func (c *closerCalled) Call() {
-	c.called = true
-}
 func TestCallSuccessDialer(t *testing.T) {
 	// This tests verifies that dialer interception code will correctly disconnect a peer if
 	// Dialer library will catch an error on a connected peer.
@@ -137,10 +135,11 @@ func TestCallSuccessDialer(t *testing.T) {
 		},
 	))
 
-	dialerCalled := &dialerCalled{called: false}
-	closerCalled := &closerCalled{called: false}
+	dialerCalled := &dialerCalled{dialerCalled: false}
 
-	httpTransport := NewTransport(DialerCalled(dialerCalled.Call), CloserCalled(closerCalled.Call))
+	httpTransport := NewTransport(
+		DialerCalled(dialerCalled.DialerCalled),
+		CloserCalled(dialerCalled.CloserCalled))
 
 	out := httpTransport.NewSingleOutbound(successServer.URL)
 	require.NoError(t, out.Start(), "failed to start outbound")
@@ -164,8 +163,8 @@ func TestCallSuccessDialer(t *testing.T) {
 	require.Error(t, err)
 
 	assert.Equal(t, yarpcerrors.CodeUnknown, yarpcerrors.FromError(err).Code())
-	assert.True(t, dialerCalled.called)
-	assert.True(t, closerCalled.called)
+	assert.True(t, dialerCalled.dialerCalled)
+	assert.True(t, dialerCalled.closerCalled)
 }
 
 func TestAddReservedHeader(t *testing.T) {
