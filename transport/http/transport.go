@@ -209,7 +209,7 @@ func DialerCalled(dialerCalled func()) TransportOption {
 	}
 }
 
-// DialerCalled is used for tests to see whether we reached a certain point in tests. Currently we check
+// CloserCalled is used for tests to see whether we reached a certain point in tests. Currently we check
 // if we caught an error from Dialer.
 func CloserCalled(closerCalled func()) TransportOption {
 	return func(options *transportOptions) {
@@ -224,8 +224,6 @@ func buildClient(f func(*transportOptions) *http.Client) TransportOption {
 		options.buildClient = f
 	}
 }
-
-// Consider adding a dialer option (or an option to see whether we reached a certain endpoint).
 
 // NewTransport creates a new HTTP transport for managing peers and sending requests
 func NewTransport(opts ...TransportOption) *Transport {
@@ -290,7 +288,7 @@ func (d *dialerWrapper) Dial(network, address string) (net.Conn, error) {
 	conn, err := d.dial(network, address)
 	// Any error will cause us to disconnect a peer. Not checking if conn is nil and relying on
 	// error being returned.
-	if err != nil || conn == nil {
+	if err != nil {
 		if d.dialerCalled != nil {
 			d.dialerCalled()
 		}
