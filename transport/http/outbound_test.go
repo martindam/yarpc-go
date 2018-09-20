@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -114,16 +115,34 @@ func TestCallSuccess(t *testing.T) {
 }
 
 type dialerTestFn struct {
-	dialerCalled bool
-	closerCalled bool
+	name   string
+	callCh chan struct{}
 }
 
-func (c *dialerTestFn) DialerCalled() {
-	c.dialerCalled = true
+func newCallee(name string) *dialerTestFn {
+	ch := make(chan struct{})
+	return &dialerTestFn{
+		name:   name,
+		callCh: ch,
+	}
 }
 
-func (c *dialerTestFn) CloserCalled() {
-	c.closerCalled = true
+func (c *dialerTestFn) Call() {
+	close(c.callCh)
+}
+
+func (c *dialerTestFn) Expect(t *testing.T, timeout time.Duration, f func()) error {
+	f()
+
+	timer := time.NewTimer(timeout)
+
+	select {
+	case <-c.callCh:
+		timer.Stop()
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("timed out waiting for %s name", c.name)
+	}
 }
 
 func TestCallSuccessDialer(t *testing.T) {
@@ -135,11 +154,12 @@ func TestCallSuccessDialer(t *testing.T) {
 		},
 	))
 
-	dialerTest := &dialerTestFn{dialerCalled: false, closerCalled: false}
+	dialer := newCallee("dialer")
+	closer := newCallee("closer")
 
 	httpTransport := NewTransport(
-		DialerCalled(dialerTest.DialerCalled),
-		CloserCalled(dialerTest.CloserCalled))
+		DialerCalled(dialer.Call),
+		CloserCalled(closer.Call))
 
 	out := httpTransport.NewSingleOutbound(successServer.URL)
 	require.NoError(t, out.Start(), "failed to start outbound")
@@ -151,20 +171,22 @@ func TestCallSuccessDialer(t *testing.T) {
 	require.NoError(t, err)
 	defer res.Body.Close()
 
-	// Close HTTP server to check that connection closure is caught.
-	successServer.Close()
-	// Adding slight delay for Dialer to catch the connection error.
-	time.Sleep(testtime.Millisecond)
+	t.Run("expect closer call", func(t *testing.T) {
+		assert.NoError(t,
+			closer.Expect(t, testtime.Second, func() {
+				successServer.Close()
+			}))
+	})
 
-	ctx, cancel = context.WithTimeout(context.Background(), testtime.Second)
-	defer cancel()
-
-	res, err = out.Call(ctx, &transport.Request{})
-	require.Error(t, err)
-
-	assert.Equal(t, yarpcerrors.CodeUnknown, yarpcerrors.FromError(err).Code())
-	assert.True(t, dialerTest.dialerCalled)
-	assert.True(t, dialerTest.closerCalled)
+	t.Run("expect dialer call", func(t *testing.T) {
+		ctx, cancel = context.WithTimeout(context.Background(), testtime.Second)
+		defer cancel()
+		assert.NoError(t,
+			dialer.Expect(t, time.Second, func() {
+				_, err = out.Call(ctx, &transport.Request{})
+				require.Error(t, err)
+			}))
+	})
 }
 
 func TestAddReservedHeader(t *testing.T) {
