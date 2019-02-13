@@ -153,9 +153,9 @@ func (c call) isClientSideErrorCode(errCode yarpcerrors.Code) bool {
 		yarpcerrors.CodeFailedPrecondition,
 		yarpcerrors.CodeAborted,
 		yarpcerrors.CodeOutOfRange,
-		yarpcerrors.CodeUnimplemented,
 		yarpcerrors.CodeUnauthenticated,
-		yarpcerrors.CodeDeadlineExceeded:
+		yarpcerrors.CodeDeadlineExceeded,
+		yarpcerrors.CodeResourceExhausted:
 		return true
 	default:
 		return false
